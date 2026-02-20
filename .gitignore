@@ -1,0 +1,28 @@
+# Cached market data (downloaded locally, not tracked)
+data/cache/
+
+# Generated reports
+reports/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Environment variables
+.env

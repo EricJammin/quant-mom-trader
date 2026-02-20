@@ -1,0 +1,11 @@
+pandas>=2.0
+numpy>=1.24
+yfinance>=0.2.30
+ta>=0.11.0
+matplotlib>=3.7
+seaborn>=0.12
+plotly>=5.15
+tqdm>=4.65
+pyarrow>=12.0
+lxml>=4.9
+pytest>=7.0
