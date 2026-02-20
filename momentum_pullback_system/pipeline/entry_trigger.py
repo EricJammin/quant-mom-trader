@@ -37,7 +37,12 @@ def compute_indicators(ohlcv: pd.DataFrame, config: Config = Config) -> pd.DataF
     return df
 
 
-def check_entry_signal(df: pd.DataFrame, date: pd.Timestamp, config: Config = Config) -> bool:
+def check_entry_signal(
+    df: pd.DataFrame,
+    date: pd.Timestamp,
+    config: Config = Config,
+    ticker: str = "",
+) -> bool:
     """Check whether a stock triggers an RSI(2) entry signal on a given date.
 
     Parameters
@@ -48,6 +53,8 @@ def check_entry_signal(df: pd.DataFrame, date: pd.Timestamp, config: Config = Co
         The date to check.
     config : Config
         Strategy configuration.
+    ticker : str
+        Ticker symbol, used to look up per-ticker RSI threshold overrides.
 
     Returns
     -------
@@ -63,8 +70,9 @@ def check_entry_signal(df: pd.DataFrame, date: pd.Timestamp, config: Config = Co
     if pd.isna(row["RSI_2"]) or pd.isna(row["SMA_200"]):
         return False
 
-    # Primary trigger: RSI(2) below entry threshold
-    if row["RSI_2"] >= config.RSI_ENTRY_THRESHOLD:
+    # Primary trigger: RSI(2) below entry threshold (per-ticker override takes precedence)
+    threshold = config.RSI_ENTRY_OVERRIDES.get(ticker, config.RSI_ENTRY_THRESHOLD)
+    if row["RSI_2"] >= threshold:
         return False
 
     # Uptrend confirmation: close above SMA-200

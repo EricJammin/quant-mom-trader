@@ -309,7 +309,7 @@ class BacktestEngine:
                 continue
 
             df_ind = self._indicators_cache[ticker]
-            if check_entry_signal(df_ind, date, self.config):
+            if check_entry_signal(df_ind, date, self.config, ticker=ticker):
                 # Get ATR for position sizing
                 atr = compute_atr(self.all_ohlcv[ticker], date, self.config)
                 if atr is None:

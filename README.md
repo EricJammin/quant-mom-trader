@@ -48,7 +48,7 @@ pytest tests/
 1. **Regime Filter** — Only trade when SPY is above SMA-200 and SMA-50 > SMA-200
 2. **Universe Filter** — Liquid stocks above $10, volume > 500k, price > SMA-200
 3. **Momentum Ranking** — Composite relative strength vs SPY (1m/3m/6m), top 25 watchlist
-4. **Entry** — RSI(2) drops below 10 while stock is in uptrend (close > SMA-200, close < SMA-5)
+4. **Entry** — RSI(2) drops below threshold while stock is in uptrend (close > SMA-200, close < SMA-5). Default threshold: 10; configurable per-ticker via `RSI_ENTRY_OVERRIDES` in config.
 5. **Exit** — RSI(2) recovers above 75, ATR-based stop loss, or 5-day time stop
 
 All parameters are configured in `momentum_pullback_system/config.py`.
