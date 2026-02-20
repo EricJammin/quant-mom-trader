@@ -26,7 +26,7 @@ class Config:
 
     # === Stage 3: RSI2 Mean Reversion Entry ===
     RSI_PERIOD = 2
-    RSI_ENTRY_THRESHOLD = 10           # Enter when RSI(2) drops below this
+    RSI_ENTRY_THRESHOLD = 15           # Enter when RSI(2) drops below this
     RSI_EXIT_THRESHOLD = 75            # Exit when RSI(2) rises above this
     REQUIRE_BELOW_SMA5 = True          # Toggleable: close must be < SMA-5
     SMA5_PERIOD = 5
