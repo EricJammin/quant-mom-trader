@@ -280,8 +280,15 @@ class BacktestEngine:
 
         watchlist_tickers = watchlist["Ticker"].tolist()
 
+        # Append supplemental tickers that bypass momentum ranking (e.g. SPY)
+        supplemental = [
+            t for t in self.config.SUPPLEMENTAL_TICKERS
+            if t not in watchlist_tickers and t in self.all_ohlcv
+        ]
+        scan_tickers = watchlist_tickers + supplemental
+
         # Stage 3: Entry trigger scan — rank candidates by lowest RSI(2)
-        for ticker in watchlist_tickers:
+        for ticker in scan_tickers:
             # Skip if already have a position
             if portfolio.has_position(ticker):
                 continue

@@ -75,6 +75,16 @@ def main() -> None:
             pass
     print(f"  Loaded {len(all_ohlcv)} stocks")
 
+    # Load supplemental tickers (e.g. SPY) — these bypass momentum ranking
+    for ticker in Config.SUPPLEMENTAL_TICKERS:
+        if ticker not in all_ohlcv:
+            try:
+                all_ohlcv[ticker] = fetcher.get_ohlcv(ticker)
+                sector_map[ticker] = "Supplemental"
+                print(f"  Loaded supplemental ticker: {ticker}")
+            except FileNotFoundError:
+                print(f"  WARNING: supplemental ticker {ticker} not found in cache")
+
     # Run backtest
     print("\nRunning backtest...")
     t0 = time.time()

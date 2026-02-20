@@ -28,6 +28,7 @@ class Config:
     RSI_PERIOD = 2
     RSI_ENTRY_THRESHOLD = 10           # Enter when RSI(2) drops below this
     RSI_ENTRY_OVERRIDES: dict = {"SPY": 15}  # Per-ticker threshold overrides
+    SUPPLEMENTAL_TICKERS: list = ["SPY"]     # Tickers scanned daily, bypassing momentum ranking
     RSI_EXIT_THRESHOLD = 75            # Exit when RSI(2) rises above this
     REQUIRE_BELOW_SMA5 = True          # Toggleable: close must be < SMA-5
     SMA5_PERIOD = 5
