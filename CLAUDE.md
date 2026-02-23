@@ -4,7 +4,7 @@ Systematic swing trading strategy (long-only) for S&P 500 stocks. Python project
 
 ## Specification
 
-See @trading-strategy-spec.md for the complete strategy rules, pipeline architecture, backtesting workflow, and acceptance criteria. Always reference this spec before making architectural decisions.
+See `momentum_pullback_system/config.py` for all strategy parameters and `README.md` for a strategy overview.
 
 # Review Plan Before Implementation
 
