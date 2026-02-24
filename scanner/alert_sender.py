@@ -3,8 +3,9 @@ from __future__ import annotations
 """Alert formatter and sender for email and Telegram.
 
 Each channel is activated only if its credentials are configured.
-Email receives the full formatted HTML report.
-Telegram receives a concise plain-text summary suited for mobile.
+Email receives the full formatted HTML report (live scans only).
+Telegram receives a concise HTML summary suited for mobile.
+Dry-run mode sends Telegram tagged [DRY RUN] but skips email.
 """
 
 import logging
@@ -12,6 +13,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
+import pandas as pd
 import requests
 
 from scanner.signal_detector import ScanResult, Signal
@@ -21,24 +23,38 @@ logger = logging.getLogger(__name__)
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-def send_alerts(result: ScanResult, config) -> None:
+def send_alerts(result: ScanResult, config, dry_run: bool = False) -> None:
     """Send scan results via all configured channels.
 
-    Sends email if EMAIL_SENDER is set.
-    Sends Telegram message if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set.
+    In live mode: sends email + Telegram.
+    In dry-run mode: sends Telegram only, tagged [DRY RUN]. Email is skipped.
     Logs a warning if neither channel is configured.
+
+    Parameters
+    ----------
+    result : ScanResult
+        The output of run_scan for the current day.
+    config : LiveConfig
+        Strategy + credentials configuration.
+    dry_run : bool
+        If True, tag Telegram message as [DRY RUN] and skip email.
     """
-    subject, html_body = _format_email(result, config)
     telegram_text = _format_telegram(result, config)
+    if dry_run:
+        telegram_text = f"🔎 <b>[DRY RUN]</b>\n{telegram_text}"
 
     sent_any = False
 
-    if config.EMAIL_SENDER and config.EMAIL_PASSWORD and config.EMAIL_RECIPIENT:
-        if _send_email(subject, html_body, config):
-            sent_any = True
-    else:
-        logger.debug("Email not configured — skipping.")
+    # Email: live mode only
+    if not dry_run:
+        if config.EMAIL_SENDER and config.EMAIL_PASSWORD and config.EMAIL_RECIPIENT:
+            subject, html_body = _format_email(result, config)
+            if _send_email(subject, html_body, config):
+                sent_any = True
+        else:
+            logger.debug("Email not configured — skipping.")
 
+    # Telegram: both live and dry-run
     if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
         if _send_telegram(telegram_text, config):
             sent_any = True
@@ -49,6 +65,89 @@ def send_alerts(result: ScanResult, config) -> None:
         logger.warning(
             "No alert channels configured. Set EMAIL_* or TELEGRAM_* environment variables."
         )
+
+
+def send_test_alerts(config) -> None:
+    """Send a test message through all configured channels with dummy data.
+
+    Use this to verify credentials and delivery before going live.
+    Both channels are tagged [TEST] so they are clearly distinguishable.
+
+    Parameters
+    ----------
+    config : LiveConfig
+        Strategy + credentials configuration.
+    """
+    test_signal = Signal(
+        ticker="TEST",
+        close=150.00,
+        rsi_2=4.5,
+        sma_200=135.00,
+        atr=3.00,
+        stop_loss=142.50,
+        pct_above_sma200=11.1,
+        is_supplemental=False,
+    )
+    result = ScanResult(
+        date=pd.Timestamp.today().normalize(),
+        is_bullish=True,
+        signals=[test_signal],
+        tickers_scanned=503,
+        tickers_passed_universe=319,
+    )
+
+    subject, html_body = _format_email(result, config)
+    telegram_text = _format_telegram(result, config)
+
+    sent_any = False
+
+    if config.EMAIL_SENDER and config.EMAIL_PASSWORD and config.EMAIL_RECIPIENT:
+        if _send_email(f"[TEST] {subject}", html_body, config):
+            sent_any = True
+            logger.info("Test email sent successfully.")
+    else:
+        logger.warning("Email not configured — skipping test email.")
+
+    if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
+        if _send_telegram(f"🧪 <b>[TEST]</b>\n{telegram_text}", config):
+            sent_any = True
+            logger.info("Test Telegram message sent successfully.")
+    else:
+        logger.warning("Telegram not configured — skipping test Telegram.")
+
+    if not sent_any:
+        logger.warning("No alert channels configured. Nothing was sent.")
+
+
+def send_error_alert(error_msg: str, config) -> None:
+    """Send an error notification via all configured channels.
+
+    Called when the scanner encounters an unhandled exception, so the user
+    knows the system is broken rather than silently not running.
+
+    Parameters
+    ----------
+    error_msg : str
+        A brief description of the error.
+    config : LiveConfig
+        Strategy + credentials configuration.
+    """
+    telegram_text = f"⚠️ <b>Scanner error</b>\n<code>{_escape_html(error_msg)}</code>"
+    subject = f"{config.EMAIL_SUBJECT_PREFIX} ERROR — scanner failed"
+    html_body = f"""<!DOCTYPE html><html><head><style>{_CSS}</style></head><body>
+    <h2>MPS Scanner — Error</h2>
+    <span class="tag bearish">Scanner Failed</span>
+    <div class="notice">
+        <strong>Error:</strong> {_escape_html(error_msg)}<br><br>
+        Check logs for the full traceback.
+    </div>
+    </body></html>"""
+
+    if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
+        _send_telegram(telegram_text, config)
+
+    if config.EMAIL_SENDER and config.EMAIL_PASSWORD and config.EMAIL_RECIPIENT:
+        _send_email(subject, html_body, config)
 
 
 def format_dry_run_output(result: ScanResult, config) -> str:
@@ -110,7 +209,7 @@ def _send_email(subject: str, html_body: str, config) -> bool:
 # ── Telegram ───────────────────────────────────────────────────────────────────
 
 def _send_telegram(text: str, config) -> bool:
-    """Send a plain-text message via the Telegram Bot API. Returns True on success."""
+    """Send an HTML-formatted message via the Telegram Bot API. Returns True on success."""
     url = f"https://api.telegram.org/bot{config.TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": config.TELEGRAM_CHAT_ID,
@@ -184,6 +283,11 @@ def _checklist_text(config) -> str:
         f"  5. Bid-ask < 10% of mid-price\n"
         f"  6. Confirm gap from prior close < {config.GAP_FILTER_PCT}% (check manually at open)"
     )
+
+
+def _escape_html(text: str) -> str:
+    """Escape special HTML characters for safe embedding in HTML/Telegram."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ── HTML email templates ───────────────────────────────────────────────────────

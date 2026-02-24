@@ -5,9 +5,10 @@ from __future__ import annotations
 
 Usage:
     python -m scanner.daily_scan                    # Live scan for today
-    python -m scanner.daily_scan --dry-run          # Print to console, no alerts sent
+    python -m scanner.daily_scan --dry-run          # Print to console + Telegram [DRY RUN]
     python -m scanner.daily_scan --date 2024-06-14  # Scan a historical date (dry-run implied)
     python -m scanner.daily_scan --refresh          # Force re-download all ticker data
+    python -m scanner.daily_scan --test-alerts      # Send test message to verify credentials
 """
 
 import argparse
@@ -24,7 +25,7 @@ from scanner.config_live import LiveConfig
 from scanner.sp500_tickers import get_tickers
 from scanner.data_fetcher import load_all_tickers
 from scanner.signal_detector import run_scan
-from scanner.alert_sender import send_alerts, format_dry_run_output
+from scanner.alert_sender import send_alerts, send_error_alert, send_test_alerts, format_dry_run_output
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,7 +39,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="MPS RSI(2) Daily Scanner")
     parser.add_argument(
         "--dry-run", action="store_true",
-        help="Print alert to console instead of sending. Implied when --date is used.",
+        help="Print alert to console and send Telegram tagged [DRY RUN]. Email is skipped.",
     )
     parser.add_argument(
         "--date", default=None, metavar="YYYY-MM-DD",
@@ -48,12 +49,33 @@ def main() -> None:
         "--refresh", action="store_true",
         help="Force re-download all ticker data even if cache is fresh.",
     )
+    parser.add_argument(
+        "--test-alerts", action="store_true",
+        help="Send a test message through all configured channels to verify credentials.",
+    )
     args = parser.parse_args()
 
-    # Historical date scans are always dry-run — we don't want to send alerts for old data
+    config = LiveConfig()
+
+    # ── Test-alerts: verify delivery without running a scan ────────────────────
+    if args.test_alerts:
+        logger.info("Sending test alerts...")
+        send_test_alerts(config)
+        return
+
+    # Historical date scans are always dry-run — avoid sending alerts for old data
     dry_run = args.dry_run or (args.date is not None)
 
-    config = LiveConfig()
+    try:
+        _run_scan(args, config, dry_run)
+    except Exception as e:
+        logger.exception(f"Unhandled scanner error: {e}")
+        send_error_alert(str(e), config)
+        sys.exit(1)
+
+
+def _run_scan(args, config, dry_run: bool) -> None:
+    """Core scan logic, separated so exceptions can be caught and alerted in main()."""
 
     # ── Determine scan date ────────────────────────────────────────────────────
     if args.date:
@@ -66,8 +88,7 @@ def main() -> None:
     # ── Load ticker list ───────────────────────────────────────────────────────
     tickers = get_tickers(config.CACHE_DIR / "sp500_tickers.csv")
     if not tickers:
-        logger.error("Failed to load S&P 500 ticker list. Aborting.")
-        sys.exit(1)
+        raise RuntimeError("Failed to load S&P 500 ticker list.")
 
     all_tickers = tickers + [
         t for t in config.SUPPLEMENTAL_TICKERS if t not in tickers
@@ -89,19 +110,17 @@ def main() -> None:
 
     spy_data = all_ohlcv.get("SPY")
     if spy_data is None:
-        logger.error("SPY data unavailable. Aborting.")
-        sys.exit(1)
+        raise RuntimeError("SPY data unavailable.")
 
     # ── Validate scan date ─────────────────────────────────────────────────────
     if scan_date not in spy_data.index:
         latest = spy_data.index[-1]
         if args.date:
-            logger.error(
+            raise RuntimeError(
                 f"Requested date {args.date} not found in SPY data "
                 f"(cache covers up to {latest.date()}). "
                 f"Dates older than ~{config.CACHE_LOOKBACK_DAYS} days are not cached."
             )
-            sys.exit(1)
         else:
             logger.warning(
                 f"Today ({scan_date.date()}) not yet in data. "
@@ -122,8 +141,8 @@ def main() -> None:
     # ── Output ─────────────────────────────────────────────────────────────────
     if dry_run:
         print(format_dry_run_output(result, config))
-    else:
-        send_alerts(result, config)
+
+    send_alerts(result, config, dry_run=dry_run)
 
 
 if __name__ == "__main__":
