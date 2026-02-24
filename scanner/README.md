@@ -41,17 +41,20 @@ Gmail requires an **App Password** (not your regular password).
 Run all commands from the **project root** (not the `scanner/` directory).
 
 ```bash
-# Live scan — sends alerts if signals are found
-python -m scanner.daily_scan
+# Live scan — sends email + Telegram alerts
+python3 -m scanner.daily_scan
 
-# Dry run — prints output to console, no alerts sent
-python -m scanner.daily_scan --dry-run
+# Dry run — prints to console + sends Telegram tagged [DRY RUN]; email is skipped
+python3 -m scanner.daily_scan --dry-run
 
 # Scan a historical date (dry-run implied)
-python -m scanner.daily_scan --date 2024-06-14
+python3 -m scanner.daily_scan --date 2024-06-14
 
 # Force re-download all ticker data
-python -m scanner.daily_scan --refresh --dry-run
+python3 -m scanner.daily_scan --refresh --dry-run
+
+# Test alert delivery — sends a dummy signal via all configured channels
+python3 -m scanner.daily_scan --test-alerts
 ```
 
 ---
@@ -71,13 +74,13 @@ Signals are ranked by RSI(2) ascending (most oversold first).
 
 ## Alert Channels
 
-| Channel | Content | When sent |
-|---|---|---|
-| **Email** | Full HTML report with signal table + checklist | If `EMAIL_SENDER` is set |
-| **Telegram** | Concise text summary for mobile | If `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` are set |
+| Channel | Content | Live | Dry-run |
+|---|---|---|---|
+| **Email** | Full HTML report with signal table + checklist | ✅ | ❌ skipped |
+| **Telegram** | Concise text summary for mobile | ✅ | ✅ tagged `[DRY RUN]` |
 
-Both channels get the same signal data. If neither is configured, the scan still runs
-but only logs to console — useful for testing.
+Both channels are independent — a failure in one does not prevent the other.
+If neither is configured, the scan still runs but only logs to console.
 
 ---
 
@@ -99,7 +102,7 @@ The scanner detects signals on the **underlying stock**. The trade is a short pu
 
 - Ticker data is cached in `scanner/cache/` as Parquet files.
 - Cache is refreshed automatically when last data is more than 3 days old.
-- S&P 500 ticker list is cached in `scanner/cache/sp500_tickers.csv` and refreshed weekly.
+- S&P 500 ticker list is sourced from the **iShares IVV ETF holdings CSV** (Wikipedia fallback), cached in `scanner/cache/sp500_tickers.csv`, and refreshed weekly.
 - **Historical date limit:** `--date` requires the requested date to be within the last
   ~365 days (the cache lookback window). Earlier dates are not cached.
 - On the first run, ~503 tickers are downloaded — this takes a few minutes.
@@ -120,15 +123,37 @@ pytest scanner/tests/
 scanner/
 ├── config_live.py        # All parameters and env-var-backed credentials
 ├── daily_scan.py         # CLI entry point
+├── run_scanner.sh        # Shell wrapper for cron scheduling
 ├── data_fetcher.py       # yfinance download with Parquet caching
 ├── signal_detector.py    # RSI(2) pipeline (reuses momentum_pullback_system)
 ├── alert_sender.py       # Email (SMTP) + Telegram (Bot API) formatting & sending
-├── sp500_tickers.py      # Wikipedia fetch + local CSV cache
+├── sp500_tickers.py      # IVV holdings (Wikipedia fallback) + local CSV cache
 ├── requirements.txt
 ├── .env.example          # Credential template
 └── tests/
-    └── test_signal_detector.py
+    ├── test_signal_detector.py
+    └── test_alert_sender.py
 ```
+
+---
+
+## Scheduling (macOS cron)
+
+The scanner is pre-configured to run automatically at **1:15 PM PT (4:15 PM ET)** every weekday via cron. The cron entry was installed during setup:
+
+```
+15 21 * * 1-5 /path/to/scanner/run_scanner.sh
+```
+
+Logs are written to `scanner/logs/scanner_YYYY-MM-DD.log`. To view today's log:
+
+```bash
+cat scanner/logs/scanner_$(date +%Y-%m-%d).log
+```
+
+> **Note:** The Mac must be awake at 1:15 PM PT for the job to fire. If it's asleep, the run is skipped for that day.
+
+To run manually outside the schedule, use the commands in the Usage section above.
 
 ---
 
