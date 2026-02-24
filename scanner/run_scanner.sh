@@ -22,7 +22,7 @@ echo "========================================" >> "$LOG_FILE"
 cd "$PROJECT_DIR"
 
 # Credentials are loaded by python-dotenv inside daily_scan.py — no need to source .env here.
-"$PYTHON" -m scanner.daily_scan >> "$LOG_FILE" 2>&1
+"$PYTHON" -m scanner.daily_scan --refresh >> "$LOG_FILE" 2>&1
 EXIT_CODE=$?
 
 echo "Scanner finished: $(date) | exit code: $EXIT_CODE" >> "$LOG_FILE"
