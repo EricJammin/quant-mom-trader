@@ -1,6 +1,7 @@
 # Cached market data (downloaded locally, not tracked)
 data/cache/
 scanner/cache/
+scanner/logs/
 
 # Generated reports
 reports/
