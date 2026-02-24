@@ -27,6 +27,13 @@ _DEFAULT_CACHE = Path("scanner/cache/sp500_tickers.csv")
 _REFRESH_AFTER_DAYS = 7
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; mps-scanner/1.0)"}
 
+# IVV strips dots from some tickers (e.g. BRK.B → BRKB) rather than using hyphens.
+# Map these to the yfinance-compatible hyphenated form.
+_IVV_SYMBOL_MAP: dict[str, str] = {
+    "BRKB": "BRK-B",
+    "BFB": "BF-B",
+}
+
 
 def get_tickers(cache_path: Path = _DEFAULT_CACHE) -> list[str]:
     """Return the current S&P 500 ticker list.
@@ -113,6 +120,9 @@ def _fetch_ivv() -> list[str]:
 
         # IVV uses dots in some tickers (e.g. BRK.B); yfinance uses hyphens
         tickers = [t.replace(".", "-") for t in tickers if t and t != "-"]
+
+        # Apply known IVV quirks (e.g. BRKB → BRK-B, BFB → BF-B)
+        tickers = [_IVV_SYMBOL_MAP.get(t, t) for t in tickers]
 
         logger.info(f"IVV: fetched {len(tickers)} equity tickers.")
         return tickers
