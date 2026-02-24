@@ -2,6 +2,7 @@
 data/cache/
 scanner/cache/
 scanner/logs/
+scanner/positions.json
 
 # Generated reports
 reports/

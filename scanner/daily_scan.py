@@ -4,11 +4,16 @@ from __future__ import annotations
 """MPS Daily RSI(2) Scanner — run once after market close.
 
 Usage:
-    python -m scanner.daily_scan                    # Live scan for today
-    python -m scanner.daily_scan --dry-run          # Print to console + Telegram [DRY RUN]
-    python -m scanner.daily_scan --date 2024-06-14  # Scan a historical date (dry-run implied)
-    python -m scanner.daily_scan --refresh          # Force re-download all ticker data
-    python -m scanner.daily_scan --test-alerts      # Send test message to verify credentials
+    python3 -m scanner.daily_scan                          # Live scan for today
+    python3 -m scanner.daily_scan --dry-run               # Print to console + Telegram [DRY RUN]
+    python3 -m scanner.daily_scan --date 2024-06-14       # Scan a historical date (dry-run)
+    python3 -m scanner.daily_scan --refresh               # Force re-download all ticker data
+    python3 -m scanner.daily_scan --test-alerts           # Verify credentials
+
+Position tracking:
+    python3 -m scanner.daily_scan --add-position TSLA 401.50
+    python3 -m scanner.daily_scan --remove-position TSLA
+    python3 -m scanner.daily_scan --list-positions
 """
 
 import argparse
@@ -26,6 +31,10 @@ from scanner.sp500_tickers import get_tickers
 from scanner.data_fetcher import load_all_tickers
 from scanner.signal_detector import run_scan
 from scanner.alert_sender import send_alerts, send_error_alert, send_test_alerts, format_dry_run_output
+from scanner.positions import (
+    load_positions, add_position, remove_position,
+    check_exits, format_positions_table,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -53,6 +62,18 @@ def main() -> None:
         "--test-alerts", action="store_true",
         help="Send a test message through all configured channels to verify credentials.",
     )
+    parser.add_argument(
+        "--add-position", nargs=2, metavar=("TICKER", "ENTRY_PRICE"),
+        help="Log a new position. Example: --add-position TSLA 401.50",
+    )
+    parser.add_argument(
+        "--remove-position", metavar="TICKER",
+        help="Remove an open position. Example: --remove-position TSLA",
+    )
+    parser.add_argument(
+        "--list-positions", action="store_true",
+        help="Show all open positions with current price and P&L.",
+    )
     args = parser.parse_args()
 
     config = LiveConfig()
@@ -63,6 +84,45 @@ def main() -> None:
         send_test_alerts(config)
         return
 
+    # ── Position management commands (load minimal data, then exit) ────────────
+    if args.add_position:
+        ticker, price_str = args.add_position
+        ticker = ticker.upper()
+        try:
+            entry_price = float(price_str)
+        except ValueError:
+            logger.error(f"Invalid entry price: {price_str!r}. Must be a number.")
+            sys.exit(1)
+
+        data = load_all_tickers([ticker], config.CACHE_DIR, config.CACHE_LOOKBACK_DAYS)
+        try:
+            pos = add_position(ticker, entry_price, data, config)
+            print(
+                f"Position added: {pos.ticker} @ ${pos.entry_price:.2f} | "
+                f"stop: ${pos.stop_loss:.2f} | entry date: {pos.entry_date}"
+            )
+        except ValueError as e:
+            logger.error(str(e))
+            sys.exit(1)
+        return
+
+    if args.remove_position:
+        ticker = args.remove_position.upper()
+        found = remove_position(ticker)
+        if not found:
+            sys.exit(1)
+        print(f"Position removed: {ticker}")
+        return
+
+    if args.list_positions:
+        positions = load_positions()
+        scan_date = pd.Timestamp.today().normalize()
+        tickers = [p.ticker for p in positions]
+        data = load_all_tickers(tickers, config.CACHE_DIR, config.CACHE_LOOKBACK_DAYS) if tickers else {}
+        print(format_positions_table(positions, data, scan_date))
+        return
+
+    # ── Regular scan ───────────────────────────────────────────────────────────
     # Historical date scans are always dry-run — avoid sending alerts for old data
     dry_run = args.dry_run or (args.date is not None)
 
@@ -128,7 +188,21 @@ def _run_scan(args, config, dry_run: bool) -> None:
             )
             scan_date = latest
 
-    # ── Run scan ───────────────────────────────────────────────────────────────
+    # ── Check open positions for exits ─────────────────────────────────────────
+    positions = load_positions()
+    exit_alerts = []
+    if positions:
+        # Ensure any position tickers not in the S&P 500 universe are loaded
+        missing = [p.ticker for p in positions if p.ticker not in all_ohlcv]
+        if missing:
+            extra = load_all_tickers(missing, config.CACHE_DIR, config.CACHE_LOOKBACK_DAYS)
+            all_ohlcv.update(extra)
+
+        exit_alerts = check_exits(positions, all_ohlcv, scan_date, config)
+        if exit_alerts:
+            logger.info(f"Exit alerts: {len(exit_alerts)} position(s) to close")
+
+    # ── Run entry signal scan ──────────────────────────────────────────────────
     logger.info("Running signal scan...")
     result = run_scan(scan_date, spy_data, all_ohlcv, config)
 
@@ -140,9 +214,9 @@ def _run_scan(args, config, dry_run: bool) -> None:
 
     # ── Output ─────────────────────────────────────────────────────────────────
     if dry_run:
-        print(format_dry_run_output(result, config))
+        print(format_dry_run_output(result, config, exit_alerts))
 
-    send_alerts(result, config, dry_run=dry_run)
+    send_alerts(result, config, dry_run=dry_run, exit_alerts=exit_alerts)
 
 
 if __name__ == "__main__":
